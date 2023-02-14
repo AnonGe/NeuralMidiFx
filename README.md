@@ -1,8 +1,38 @@
 
 # Video Tutorials
 
-<iframe width="560" height="315" src="https://www.youtube.com/embed/YD25m0KKDmE" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen></iframe>
+#### Tutorial 1: Introduction to NeuralMidiFx
 
+
+https://youtu.be/YD25m0KKDmE
+
+
+
+#### Tutorial 2: Parameters and GUI Generation
+
+
+https://youtu.be/r3oBxg6RQmM
+         
+         
+#### Tutorial 3: InputTensorPreparator Thread (ITP)
+
+
+https://youtu.be/B2UUSiIU7Y0      
+          
+         
+#### Tutorial 4: Model Thread (MDL)
+
+
+https://youtu.be/VnSaHGR_6JA
+          
+
+#### Tutorial 5: PlaybackPreparatorThread (PPP)
+
+
+https://youtu.be/SMbSrPlxubM
+           
+           
+          
 # Installation
 
 Juce and LibTorch will be automatically installed
