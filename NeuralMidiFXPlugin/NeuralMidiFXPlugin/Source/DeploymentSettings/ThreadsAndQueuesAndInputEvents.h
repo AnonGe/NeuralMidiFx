@@ -1,39 +1,8 @@
 //
-// Created by
+// Created by ANON on 2022-02-11.
 //
 
 #pragma once
-
-#include <torch/script.h> // One-stop header.
-
-// ======================================================================================
-// ==================       Thread  Settings                  ============================
-// ======================================================================================
-namespace thread_configurations::InputTensorPreparator {
-    // waittime between iterations in ms
-    constexpr int waitTimeBtnIters{5};
-}
-namespace thread_configurations::Model {
-    // waittime between iterations in ms
-    constexpr int waitTimeBtnIters{5};
-}
-namespace thread_configurations::PlaybackPreparator {
-    // waittime between iterations in ms
-    constexpr int waitTimeBtnIters{5};
-}
-
-// ======================================================================================
-// ==================       QUEUE  Settings                  ============================
-// ======================================================================================
-/* specifies the max number of elements that can be stored in the queue
- *  if the queue is full, the producer thread will overwrite the oldest element
- */
-namespace queue_settings {
-    constexpr int NMP2ITP_que_size{4096};
-    constexpr int ITP2MDL_que_size{4096};
-    constexpr int MDL2PPP_que_size{4096};
-    constexpr int PPP2NMP_que_size{4096};
-}
 
 // ======================================================================================
 // ==================        Event Communication Settings                ================
@@ -101,4 +70,39 @@ namespace event_communication_settings {
 }
 
 
+// ======================================================================================
+// ==================       Thread  Settings                  ============================
+// ======================================================================================
+namespace thread_configurations::InputTensorPreparator {
+    // waittime between iterations in ms
+    constexpr double waitTimeBtnIters{0.5};
+}
+namespace thread_configurations::Model {
+    // waittime between iterations in ms
+    constexpr double waitTimeBtnIters{0.5};
+}
+namespace thread_configurations::PlaybackPreparator {
+    // waittime between iterations in ms
+    constexpr double waitTimeBtnIters{0.5};
+
+
+}
+
+namespace thread_configurations::APVTSMediatorThread {
+    // waittime between iterations in ms
+    constexpr double waitTimeBtnIters{0.5};
+}
+// ======================================================================================
+// ==================       QUEUE  Settings                  ============================
+// ======================================================================================
+/* specifies the max number of elements that can be stored in the queue
+ *  if the queue is full, the producer thread will overwrite the oldest element
+ */
+namespace queue_settings {
+    constexpr int NMP2ITP_que_size{512};
+    constexpr int ITP2MDL_que_size{512};
+    constexpr int MDL2PPP_que_size{512};
+    constexpr int PPP2NMP_que_size{512};
+    constexpr int APVM_que_size{32};
+}
 

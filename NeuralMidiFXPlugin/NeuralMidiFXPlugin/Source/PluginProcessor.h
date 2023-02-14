@@ -3,11 +3,15 @@
 #include <shared_plugin_helpers/shared_plugin_helpers.h>
 //#include <vector>
 #include <torch/torch.h>
-#include "model_settings.h"
-#include "ProcessorThreads/InputTensorPreparatorThread.h"
-#include "ProcessorThreads/ModelThread.h"
-#include "ProcessorThreads/PlaybackPreparatorThread.h"
+#include "DeploymentSettings/Model.h"
+#include "DeploymentThreads/InputTensorPreparatorThread.h"
+#include "DeploymentThreads/ModelThread.h"
+#include "DeploymentThreads/PlaybackPreparatorThread.h"
+#include "Includes/APVTSMediatorThread.h"
+#include "Includes/LockFreeQueue.h"
 #include "Includes/GenerationEvent.h"
+#include "Includes/APVTSMediatorThread.h"
+#include <chrono>
 
 // #include "gui/CustomGuiTextEditors.h"
 
@@ -32,6 +36,11 @@ public:
     unique_ptr<LockFreeQueue<ModelOutput, queue_settings::MDL2PPP_que_size>> MDL2PPP_ModelOutput_Que;
     unique_ptr<LockFreeQueue<GenerationEvent, queue_settings::PPP2NMP_que_size>> PPP2NMP_GenerationEvent_Que;
 
+    // APVTS Queues
+    unique_ptr<LockFreeQueue<GuiParams, queue_settings::APVM_que_size>> APVM2ITP_GuiParams_Que;
+    unique_ptr<LockFreeQueue<GuiParams, queue_settings::APVM_que_size>> APVM2MDL_GuiParams_Que;
+    unique_ptr<LockFreeQueue<GuiParams, queue_settings::APVM_que_size>> APVM2PPP_GuiParams_Que;
+
     // Threads used for generating patterns in the background
     shared_ptr<InputTensorPreparatorThread> inputTensorPreparatorThread;
     shared_ptr<ModelThread> modelThread;
@@ -39,6 +48,7 @@ public:
 
     // APVTS
     juce::AudioProcessorValueTreeState apvts;
+    unique_ptr<APVTSMediatorThread> apvtsMediatorThread;
 
     void getStateInformation(juce::MemoryBlock &destData) override;
     void setStateInformation(const void *data, int sizeInBytes) override;
@@ -51,6 +61,10 @@ private:
 
     // holds the playhead position for displaying on GUI
     float playhead_pos{-1.0f};
+    time_ playhead_start_time{};
+    std::optional<juce::MidiMessage> getMessageIfToBePlayed(
+            time_ now_, const juce::MidiMessage &msg,
+            int buffSize, double fs, double qpm);
 
     //  midiBuffer to fill up with generated data
     juce::MidiBuffer tempBuffer;
@@ -72,8 +86,12 @@ private:
             int buffSize);
 
     // Playback Data
-    juce::MidiMessageSequence playbackSequence{};  // holds messages to play
-    std::optional<GenerationPlaybackPolicies> playbackPolicies{std::nullopt};
+    PlaybackPolicies playbackPolicies{};
+    juce::MidiMessageSequence playbackMessageSequence{};
     BufferMetaData phead_at_start_of_new_stream{};
+    time_ time_anchor_for_playback{};
+
+    // utility methods
+    void PrintMessage(const std::string& input);
 
 };

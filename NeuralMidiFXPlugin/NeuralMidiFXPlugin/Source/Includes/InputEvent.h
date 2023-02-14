@@ -1,16 +1,90 @@
 //
-// Created by on 2022-02-11.
+// Created by ANON on 2022-02-11.
 //
 
 #pragma once
 
 #include <shared_plugin_helpers/shared_plugin_helpers.h>
-#include "../Includes/CustomStructsAndLockFreeQueue.h"
-#include "../settings.h"
+#include "../Includes/GuiParameters.h"
+#include "../Includes/chrono_timer.h"
+#include "../DeploymentSettings/ThreadsAndQueuesAndInputEvents.h"
 #include <utility>
 
 
 using namespace juce;
+
+
+struct time_ {
+    time_(): seconds(0.0), samples(0), ppq(0.0) {}
+
+    explicit time_(int64_t samples_, double seconds_, double ppq_) :
+    seconds(seconds_), samples(samples_), ppq(ppq_) {}
+
+    double inSeconds() const { return seconds; }
+    int64_t inSamples() const { return samples; }
+    double inQuarterNotes() const { return ppq; }
+
+    // unitType == 1 --> samples
+    // unitType == 2 --> seconds
+    // unitType == 3 --> quarter notes
+    double getTimeWithUnitType(int unitType) const {
+        switch (unitType) {
+            case 1:
+                return inSamples();
+            case 2:
+                return inSeconds();
+            case 3:
+                return inQuarterNotes();
+            default:
+                assert("Invalid unit type");
+        }
+    }
+    time_ operator-(const time_ &e) const {
+        return time_(this->inSamples() - e.inSamples(),
+                     this->inSeconds() - e.inSeconds(),
+                     this->inQuarterNotes() - e.inQuarterNotes());
+    }
+
+    bool operator==(const time_ &e) const {
+        return (this->inSeconds() == e.inSeconds()) &&
+               (this->inSamples() == e.inSamples()) &&
+               (this->inQuarterNotes() == e.inQuarterNotes());
+    }
+
+    bool operator!=(const time_ &e) const {
+        return !(*this == e);
+    }
+
+    bool operator<(const time_ &e) const {
+        return (this->inSeconds() < e.inSeconds()) &&
+               (this->inSamples() < e.inSamples()) &&
+               (this->inQuarterNotes() < e.inQuarterNotes());
+    }
+
+    bool operator>(const time_ &e) const {
+        return (this->inSeconds() > e.inSeconds()) &&
+               (this->inSamples() > e.inSamples()) &&
+               (this->inQuarterNotes() > e.inQuarterNotes());
+    }
+
+    bool operator<=(const time_ &e) const {
+        return (this->inSeconds() <= e.inSeconds()) &&
+               (this->inSamples() <= e.inSamples()) &&
+               (this->inQuarterNotes() <= e.inQuarterNotes());
+    }
+
+    bool operator>=(const time_ &e) const {
+        return (this->inSeconds() >= e.inSeconds()) &&
+               (this->inSamples() >= e.inSamples()) &&
+               (this->inQuarterNotes() >= e.inQuarterNotes());
+    }
+
+private:
+    double seconds{};
+    int64_t samples{};
+    double ppq{};
+};
+
 
 /*
  * This structure holds the metadata for a given buffer received from the host.
@@ -27,9 +101,6 @@ using namespace juce;
  *  - time_in_seconds: starting point of the buffer in seconds
  *  - time_in_ppq: starting point of the buffer in quarter notes
  *
- *  - delta_time_in_samples: amount of time in samples that the playhead has moved since previous buffer
- *  - delta_time_in_seconds: amount of time in seconds that the playhead has moved since previous buffer
- *  - delta_time_in_ppq: amount of time in quarter notes that the playhead has moved since previous buffer
  *  - playhead_force_moved_forward: has the playhead has been moved forcibly ahead of the next expected buffer
  *  - playhead_force_moved_backward: has the playhead has been moved forcibly behind the next expected buffer
  *
@@ -95,9 +166,6 @@ struct BufferMetaData {
     double time_in_seconds{-1};
     double time_in_ppq{-1};
 
-    int64_t delta_time_in_samples{0};
-    double delta_time_in_seconds{0};
-    double delta_time_in_ppq{0};
     bool playhead_force_moved_forward{false};
     bool playhead_force_moved_backward{false};
 
@@ -137,30 +205,6 @@ struct BufferMetaData {
         }
     }
 
-    void set_time_shift_compared_to_last_frame(const BufferMetaData& last_frame_meta_data) {
-        // calculate time shift compared to last frame
-        delta_time_in_samples = time_in_samples - last_frame_meta_data.time_in_samples;
-        delta_time_in_seconds = time_in_seconds - last_frame_meta_data.time_in_seconds;
-        delta_time_in_ppq = time_in_ppq - last_frame_meta_data.time_in_ppq;
-
-        // check if playhead was manually moved forward or backward
-        auto expected_next_frame_sample = last_frame_meta_data.time_in_samples +
-                last_frame_meta_data.buffer_size_in_samples;
-        if ((expected_next_frame_sample < this->time_in_samples) and (qpm == last_frame_meta_data.qpm)) {
-            playhead_force_moved_forward = true;
-        } else if ((expected_next_frame_sample > this->time_in_samples) and (qpm == last_frame_meta_data.qpm)) {
-            playhead_force_moved_backward = true;
-        }
-    }
-
-    bool wasPlayheadManuallyMovedBackward() const {
-        return playhead_force_moved_backward;
-    }
-
-    bool wasPlayheadManuallyMovedForward() const {
-        return playhead_force_moved_forward;
-    }
-
     bool operator==(const BufferMetaData &e) const {
         return (qpm == e.qpm) and (numerator == e.numerator) and (denominator == e.denominator) and
                (isPlaying == e.isPlaying) and (isRecording == e.isRecording) and
@@ -183,9 +227,6 @@ struct BufferMetaData {
         this->time_in_samples = e.time_in_samples;
         this->time_in_seconds = e.time_in_seconds;
         this->time_in_ppq = e.time_in_ppq;
-        this->delta_time_in_samples = e.delta_time_in_samples;
-        this->delta_time_in_seconds = e.delta_time_in_seconds;
-        this->delta_time_in_ppq = e.delta_time_in_ppq;
         this->playhead_force_moved_forward = e.playhead_force_moved_forward;
         this->playhead_force_moved_backward = e.playhead_force_moved_backward;
         this->isLooping = e.isLooping;
@@ -251,25 +292,18 @@ struct BufferMetaData {
  *      >> constexpr bool FilterCCEvents_FLAG{false};
  * -
  */
+
+using chrono_time = std::chrono::time_point<std::chrono::system_clock>;
+
 class Event {
 public:
-
-    int type{0};
-
-    BufferMetaData bufferMetaData;
-
-    // The actual time of the event. If event is a midiMessage, this time stamp
-    // can be different from the starting time stam of the buffer found in bufferMetaData.time_in_* fields
-    int64_t time_in_samples{-1};
-    double time_in_seconds{-1};
-    double time_in_ppq{-1};
-
-    juce::MidiMessage message{};
 
     Event() = default;
 
     Event(juce::Optional<juce::AudioPlayHead::PositionInfo> Pinfo,
           double sample_rate_, int64_t buffer_size_in_samples_, bool isFirstFrame) {
+
+        chrono_timed.registerStartTime();
 
         type = isFirstFrame ? 1 : 2;
 
@@ -281,10 +315,12 @@ public:
     }
 
     Event(juce::Optional<juce::AudioPlayHead::PositionInfo> Pinfo, double sample_rate_,
-          int64_t buffer_size_in_samples_, juce::MidiMessage message_) {
+          int64_t buffer_size_in_samples_, juce::MidiMessage &message_) {
+
+        chrono_timed.registerStartTime();
 
         type = 10;
-        message = juce::MidiMessage(message_);
+        message = std::move(message_);
         message.getDescription();
 
         bufferMetaData = BufferMetaData(Pinfo, sample_rate_, buffer_size_in_samples_);
@@ -366,7 +402,7 @@ public:
         type = -1;
     }
 
-    int Type() const { return type; }
+    [[nodiscard]] int Type() const { return type; }
 
     bool isFirstBufferEvent() const { return type == 1; }
 
@@ -386,6 +422,26 @@ public:
 
     bool isCCEvent() const { return message.isController() and isMidiMessageEvent(); }
 
+    int getNoteNumber() const {
+        assert ((isNoteOnEvent() or isNoteOffEvent()) && "Can only get note number for note on/off events");
+        return message.getNoteNumber();
+    }
+
+    float getVelocity() const {
+        assert ((isNoteOnEvent() or isNoteOffEvent()) && "Can only get velocity for note on/off events");
+        return message.getFloatVelocity();
+    }
+
+    int getCCNumber() const {
+        assert (isCCEvent() && "Can only get CC number for CC events");
+        return message.getControllerNumber();
+    }
+
+    int getChannel() const {
+        assert (isMidiMessageEvent() && "Can only get channel for midi events");
+        return message.getChannel();
+    }
+
     static double n_samples_to_ppq(double audioSamplePos, double qpm, double sample_rate) {
         auto tmp_ppq = audioSamplePos * qpm / (60 * sample_rate);
         return tmp_ppq;
@@ -397,7 +453,7 @@ public:
     }
 
     std::stringstream getDescriptionOfChangedFeatures(
-            Event other, bool ignore_time_changes_for_new_buffer_events) const {
+            const Event& other, bool ignore_time_changes_for_new_buffer_events) const {
         std::stringstream ss;
         ss << "++ ";
 
@@ -407,56 +463,41 @@ public:
         if (isNewBarEvent()) { ss << " | New Bar"; }
         if (isNewTimeShiftEvent()) { ss << " | New Time Shift"; }
 
-        if (isMidiMessageEvent()) {
-            ss << " | message: " << message.getDescription();
-        } else {
-            if (bufferMetaData.wasPlayheadManuallyMovedBackward()) {
-                ss << " | Playhead Manually Moved BACKWARD";
-                ss << " by " << bufferMetaData.delta_time_in_samples << " samples, ";
-                ss << bufferMetaData.delta_time_in_seconds << " seconds, ";
-                ss << bufferMetaData.delta_time_in_ppq << " ppq ";
-            }
-            if (bufferMetaData.wasPlayheadManuallyMovedForward()) {
-                ss << " | Playhead Manually Moved FORWARD";
-                ss << " by " << bufferMetaData.delta_time_in_samples << " samples, ";
-                ss << bufferMetaData.delta_time_in_seconds << " seconds, ";
-                ss << bufferMetaData.delta_time_in_ppq << " ppq ";
-            }
-        }
+        if (isMidiMessageEvent()) { ss << " | message: " << message.getDescription(); }
 
         if (bufferMetaData.qpm != other.bufferMetaData.qpm) {
             ss << " | qpm: " << bufferMetaData.qpm;
         }
         if (bufferMetaData.numerator != other.bufferMetaData.numerator) {
-            ss << " | ts numerator: " << bufferMetaData.numerator;
+            ss << " | num: " << bufferMetaData.numerator;
         }
         if (bufferMetaData.denominator != other.bufferMetaData.denominator) {
-            ss << " | ts denominator: " << bufferMetaData.denominator;
+            ss << " | den: " << bufferMetaData.denominator;
         }
 
         if (bufferMetaData.isPlaying != other.bufferMetaData.isPlaying) {
-            ss << " | isPlaying: " << bufferMetaData.isPlaying;
+            ss << " | isPly: " << bufferMetaData.isPlaying;
         }
         if (bufferMetaData.isRecording != other.bufferMetaData.isRecording) {
-            ss << " | isRecording: " << bufferMetaData.isRecording;
+            ss << " | isRec: " << bufferMetaData.isRecording;
         }
         if (bufferMetaData.isLooping != other.bufferMetaData.isLooping) {
-            ss << " | isLooping: " << bufferMetaData.isLooping;
+            ss << " | isLp: " << bufferMetaData.isLooping;
         }
         if (bufferMetaData.loop_start_in_ppq != other.bufferMetaData.loop_start_in_ppq) {
-            ss << " | loop_start_in_ppq: " << bufferMetaData.loop_start_in_ppq;
+            ss << " | lp_str_ppq: " << bufferMetaData.loop_start_in_ppq;
         }
         if (bufferMetaData.loop_end_in_ppq != other.bufferMetaData.loop_end_in_ppq) {
-            ss << " | loop_end_in_ppq: " << bufferMetaData.loop_end_in_ppq;
+            ss << " | lp_end_ppq: " << bufferMetaData.loop_end_in_ppq;
         }
         if (bufferMetaData.bar_count != other.bufferMetaData.bar_count) {
-            ss << " | bar_count: " << bufferMetaData.bar_count;
+            ss << " | bar_ccnt: " << bufferMetaData.bar_count;
         }
         if (bufferMetaData.sample_rate != other.bufferMetaData.sample_rate) {
-            ss << " | sample_rate: " << bufferMetaData.sample_rate;
+            ss << " | sr: " << bufferMetaData.sample_rate;
         }
         if (bufferMetaData.buffer_size_in_samples != other.bufferMetaData.buffer_size_in_samples) {
-            ss << " | buffer_size_in_samples: " << bufferMetaData.buffer_size_in_samples;
+            ss << " | smpls_in_bfr: " << bufferMetaData.buffer_size_in_samples;
         }
         if (!(ignore_time_changes_for_new_buffer_events and isNewBufferEvent())) {
             if (time_in_samples != other.time_in_samples) {
@@ -468,6 +509,10 @@ public:
             if (time_in_ppq != other.time_in_ppq) {
                 ss << " | time_in_ppq: " << time_in_ppq;
             }
+        }
+
+        if (chrono_timed.isValid()) {
+            ss << *chrono_timed.getDescription(" | CreationToConsumption Delay: ");
         }
 
         if (ss.str().length() > 3) {
@@ -484,43 +529,32 @@ public:
         if (isPlaybackStoppedEvent()) { ss << " | Stop  Buffer"; }
         if (isNewBufferEvent()) { ss << " |  New Buffer "; }
         if (isNewBarEvent()) { ss << " |  New  Bar   "; }
-        if (isMidiMessageEvent()) {
-            ss << " | message:    " << message.getDescription();
-        } else {
-            if (bufferMetaData.wasPlayheadManuallyMovedBackward()) {
-                ss << " | Playhead Manually Moved BACKWARD";
-                ss << " by " << bufferMetaData.delta_time_in_samples << " samples, ";
-                ss << bufferMetaData.delta_time_in_seconds << " seconds, ";
-                ss << bufferMetaData.delta_time_in_ppq << " ppq ";
-            }
-            if (bufferMetaData.wasPlayheadManuallyMovedForward()) {
-                ss << " | Playhead Manually Moved FORWARD";
-                ss << " by " << bufferMetaData.delta_time_in_samples << " samples, ";
-                ss << bufferMetaData.delta_time_in_seconds << " seconds, ";
-                ss << bufferMetaData.delta_time_in_ppq << " ppq ";
-            }
-        }
+        if (isMidiMessageEvent()) { ss << " | message:    " << message.getDescription(); }
 
         ss << " | qpm: " << bufferMetaData.qpm;
-        ss << " | ts numerator: " << bufferMetaData.numerator;
-        ss << " | ts denominator: " << bufferMetaData.denominator;
-        ss << " | isPlaying: " << bufferMetaData.isPlaying;
-        ss << " | isRecording: " << bufferMetaData.isRecording;
-        ss << " | isLooping: " << bufferMetaData.isLooping;
-        ss << " | loop_start_in_ppq: " << bufferMetaData.loop_start_in_ppq;
-        ss << " | loop_end_in_ppq: " << bufferMetaData.loop_end_in_ppq;
-        ss << " | bar_count: " << bufferMetaData.bar_count;
-        ss << " | ppq_position_of_last_bar_start: " << bufferMetaData.ppq_position_of_last_bar_start;
-        ss << " | sample_rate: " << bufferMetaData.sample_rate;
-        ss << " | buffer_size_in_samples: " << bufferMetaData.buffer_size_in_samples;
+        ss << " | num: " << bufferMetaData.numerator;
+        ss << " | den: " << bufferMetaData.denominator;
+        ss << " | isPly: " << bufferMetaData.isPlaying;
+        ss << " | isRec: " << bufferMetaData.isRecording;
+        ss << " | isLp: " << bufferMetaData.isLooping;
+        ss << " | lp_str_ppq: " << bufferMetaData.loop_start_in_ppq;
+        ss << " | lp_end_ppq: " << bufferMetaData.loop_end_in_ppq;
+        ss << " | bar_ccnt: " << bufferMetaData.bar_count;
+        ss << " | last_bar_ppq: " << bufferMetaData.ppq_position_of_last_bar_start;
+        ss << " | sr: " << bufferMetaData.sample_rate;
+        ss << " | smpls_in_bfr: " << bufferMetaData.buffer_size_in_samples;
         ss << " | time_in_samples: " << time_in_samples;
         ss << " | time_in_seconds: " << time_in_seconds;
         ss << " | time_in_ppq: " << time_in_ppq;
 
+        if (chrono_timed.isValid()) {
+            ss << *chrono_timed.getDescription(" | CreationToConsumption Delay: ");
+        }
+
         if (ss.str().length() > 3) {
             return ss;
         } else {
-            return std::stringstream();
+            return {};
         }
 
     }
@@ -529,14 +563,67 @@ public:
     // Operators for sorting using time stamp
     // ==================================================
 
-    bool operator<(const Event &e) const { return time_in_samples < e.time_in_samples; }
+//    bool operator<(const Event &e) const { return time_in_samples < e.time_in_samples; }
+//
+//    bool operator<=(const Event &e) const { return time_in_samples <= e.time_in_samples; }
+//
+//    bool operator>(const Event &e) const { return time_in_samples > e.time_in_samples; }
+//
+//    bool operator>=(const Event &e) const { return time_in_samples >= e.time_in_samples; }
+//
+//    bool operator==(const Event &e) const { return time_in_samples == e.time_in_samples; }
 
-    bool operator<=(const Event &e) const { return time_in_samples <= e.time_in_samples; }
+    // getter methods
+    double qpm() const { return bufferMetaData.qpm; }
+    double numerator() const { return bufferMetaData.numerator; }
+    double denominator() const { return bufferMetaData.denominator; }
+    bool isPlaying() const { return bufferMetaData.isPlaying; }
+    bool isRecording() const { return bufferMetaData.isRecording; }
+    time_ BufferStartTime() const {
+        return time_(bufferMetaData.time_in_samples,
+                     bufferMetaData.time_in_seconds,
+                     bufferMetaData.time_in_ppq);
+    }
+    time_ Time() const {
+        return time_(time_in_samples,
+                     time_in_seconds,
+                     time_in_ppq);
+    }
 
-    bool operator>(const Event &e) const { return time_in_samples > e.time_in_samples; }
+    bool isLooping() const { return bufferMetaData.isLooping; }
+    double loopStart() const { return bufferMetaData.loop_start_in_ppq; }
+    double loopEnd() const { return bufferMetaData.loop_end_in_ppq; }
 
-    bool operator>=(const Event &e) const { return time_in_samples >= e.time_in_samples; }
+    int64_t barCount() const { return bufferMetaData.bar_count; }
+    double lastBarPos() const { return bufferMetaData.ppq_position_of_last_bar_start; }
 
-    bool operator==(const Event &e) const { return time_in_samples == e.time_in_samples; }
+    time_ time_from(Event e) {
+        return time_(time_in_samples - e.time_in_samples,
+                     time_in_seconds - e.time_in_seconds,
+                     time_in_ppq - e.time_in_ppq);
+    }
 
+    void setIsPlaying(bool isPlaying) { bufferMetaData.isPlaying = isPlaying; }
+
+    BufferMetaData getBufferMetaData() const { return bufferMetaData; }
+
+    void registerAccess() { chrono_timed.registerEndTime(); }
+
+private:
+    int type{0};
+
+    juce::MidiMessage message{};
+    BufferMetaData bufferMetaData;
+
+    // The actual time of the event. If event is a midiMessage, this time stamp
+    // can be different from the starting time stam of the buffer found in bufferMetaData.time_in_* fields
+    int64_t time_in_samples{-1};
+    double time_in_seconds{-1};
+    double time_in_ppq{-1};
+
+    // uses chrono::system_clock to time events (for debugging only)
+    // don't use this for anything else than debugging.
+    // used to keep track of when the object was created and when it was accessed
+    chrono_timer chrono_timed;
 };
+
