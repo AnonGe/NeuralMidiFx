@@ -23,7 +23,7 @@ https://youtu.be/B2UUSiIU7Y0
 #### Tutorial 4: Model Thread (MDL)
 
 
-https://youtu.be/VnSaHGR_6JA
+[https://youtu.be/VnSaHGR_6JA](https://youtu.be/VnSaHGR_6JA)
           
 
 #### Tutorial 5: PlaybackPreparatorThread (PPP)
