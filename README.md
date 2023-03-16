@@ -4,7 +4,7 @@
 #### Tutorial 1: Introduction to NeuralMidiFx
 
 
-https://youtu.be/YD25m0KKDmE
+https://www.youtube.com/watch?v=o_4NsttseDw
 
 
 
